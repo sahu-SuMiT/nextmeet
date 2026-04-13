@@ -3,24 +3,6 @@ import { Box, Typography } from '@mui/material';
 import { io } from 'socket.io-client';
 import SERVER from "../../config";
 
-const styles = {
-    MeetCard: {
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: 450,
-        height: 270,
-        mt: 3,
-        position: 'relative',
-    },
-    singleCenter: {
-        display: 'grid',
-        placeItems: 'center',
-        borderRadius: 3,
-    },
-};
-
 const MeetCard = ({ user, peer }) => {
     const videoRef = React.useRef();
     const socketRef = React.useRef();
@@ -56,44 +38,53 @@ const MeetCard = ({ user, peer }) => {
     const showAvatar = isVideoOff || !hasStream;
 
     return (
-        <Box sx={styles.MeetCard}>
+        <>
             <video
                 playsInline
                 autoPlay
                 controls={false}
                 ref={videoRef}
-                className="object-cover rounded-lg"
                 style={{
-                    width: styles.MeetCard.width,
-                    height: styles.MeetCard.height,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
                     display: showAvatar ? 'none' : 'block',
                 }}
             />
             {showAvatar && (
-                <Box
-                    sx={{
-                        width: '100%',
-                        height: '100%',
-                        position: 'absolute',
-                        backgroundColor: '#303030',
-                        ...styles.singleCenter,
-                    }}
-                >
-                    <img
-                        className="h-[35%] max-h-[150px] w-auto rounded-full aspect-square object-cover"
-                        src={
-                            user?.photoURL ||
-                            user?.user?.photoURL ||
-                            'https://parkridgevet.com.au/wp-content/uploads/2020/11/Profile-300x300.png'
-                        }
-                        alt={user?.name}
-                    />
+                <Box sx={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'grid',
+                    placeItems: 'center',
+                    background: 'linear-gradient(135deg, #1e1e2e 0%, #2a2a4a 100%)',
+                }}>
+                    <Box sx={{ textAlign: 'center' }}>
+                        <img
+                            src={
+                                user?.photoURL ||
+                                user?.user?.photoURL ||
+                                'https://parkridgevet.com.au/wp-content/uploads/2020/11/Profile-300x300.png'
+                            }
+                            alt={user?.name}
+                            style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '3px solid #667eea' }}
+                        />
+                    </Box>
                 </Box>
             )}
-            <Typography variant="body1" className="absolute bottom-4 left-4">
-                {user?.name}
-            </Typography>
-        </Box>
+            <Box sx={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+                p: '16px 12px 8px',
+            }}>
+                <Typography variant="body2" sx={{ color: '#fff', fontWeight: 600, fontSize: '13px' }}>
+                    {user?.name}
+                </Typography>
+            </Box>
+        </>
     );
 };
 export default MeetCard;

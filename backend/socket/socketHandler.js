@@ -45,6 +45,29 @@ const registerSocketHandlers = (io, socket) => {
         }
     });
 
+    socket.on('chat message', (payload) => {
+        const roomID = getRoomBySocket(socket.id);
+        if (roomID) {
+            io.to(roomID).emit('chat message', {
+                id: Date.now() + '-' + socket.id,
+                sender: payload.sender,
+                message: payload.message,
+                timestamp: new Date().toISOString(),
+            });
+        }
+    });
+
+    socket.on('raise hand', (payload) => {
+        const roomID = getRoomBySocket(socket.id);
+        if (roomID) {
+            io.to(roomID).emit('raise hand', {
+                uid: payload.uid,
+                name: payload.name,
+                raised: payload.raised,
+            });
+        }
+    });
+
     socket.on('disconnect', () => {
         const result = leaveRoom(socket.id);
         if (result) {

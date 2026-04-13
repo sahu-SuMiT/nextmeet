@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @layer base {
     body {
         @apply bg-zinc-900 text-gray-300;
@@ -12,7 +14,14 @@
 }
 
 * {
-    font-family: 'DM Sans', sans-serif !important;
+    font-family: 'Inter', 'DM Sans', sans-serif !important;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    overflow: hidden;
 }
 
 .lightGrayBorder {
@@ -22,9 +31,14 @@
 .video-grid {
     display: flex;
     flex-wrap: wrap;
-    justify-content: space-evenly;
-    gap: 50px;
+    justify-content: center;
+    gap: 16px;
 }
+
+.video-grid::-webkit-scrollbar {
+    display: none;
+}
+
 .localStream {
     width: 340px;
     height: 200px;
@@ -34,10 +48,26 @@
     width: 100%;
     display: flex;
     justify-content: center;
-    gap: 30px;
+    gap: 12px;
     align-items: center;
 }
 
-.video-grid::-webkit-scrollbar {
-    display: none;
+::-webkit-scrollbar {
+    width: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: #3a3a5a;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+@media (max-width: 768px) {
+    .video-grid {
+        gap: 8px;
+        padding: 8px !important;
+    }
 }
