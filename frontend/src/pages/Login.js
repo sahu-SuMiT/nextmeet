@@ -24,7 +24,6 @@ const Login = () => {
         <section className="w-full h-screen">
             <div className="p-8 h-full">
                 <div className="max-w-[700px] m-auto h-full flex flex-col items-center justify-between">
-                    {/* Top three lines */}
                     <div className="w-full">
                         <p className="font-bold text-4xl">Let's sign you in.</p>
                         <div className="mt-5">
@@ -32,7 +31,6 @@ const Login = () => {
                             <p className="my-2 text-3xl">You've been missed!</p>
                         </div>
                     </div>
-                    {/* Login form */}
                     <form className="flex flex-col gap-4 items-center w-full">
                         <input
                             type="email"
@@ -58,7 +56,6 @@ const Login = () => {
                             </div>
                         </div>
                     </form>
-                    {/* Login button */}
                     <div className="w-full text-center">
                         <p>
                             Don't have an account?{' '}

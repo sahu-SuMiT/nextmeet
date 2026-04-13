@@ -7,6 +7,7 @@ import { BsFillShareFill } from 'react-icons/bs';
 import QR from 'react-qr-code';
 import { WhatsappShareButton, TwitterShareButton } from 'react-share';
 import Copy from '../Copy';
+
 const style = {
     position: 'absolute',
     top: '50%',
@@ -48,9 +49,6 @@ export default function BasicModal({ url }) {
                     <Typography id="modal-modal-description" sx={{ mt: 2 }} variant="body1">
                         Share this QR to let other team members join
                     </Typography>
-                    {/**
-                     * SHOW QR
-                     */}
                     <Box
                         sx={{ width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2 }}
                     >

@@ -6,5 +6,3 @@ export const store = configureStore({
         hackathon: hackathonReducer,
     },
 });
-
-// Infer the `RootState` and `AppDispatch` types from the store itself

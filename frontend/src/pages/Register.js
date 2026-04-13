@@ -27,7 +27,6 @@ const Register = () => {
         <section className="w-full h-screen">
             <div className="p-8 h-full">
                 <div className="max-w-[700px] m-auto h-full flex flex-col items-center justify-between">
-                    {/* Top three lines */}
                     <div className="w-full">
                         <p className="font-bold text-4xl">Let's register you.</p>
                         <div className="mt-5">
@@ -35,7 +34,6 @@ const Register = () => {
                             <p className="my-2 text-3xl">To your new home!</p>
                         </div>
                     </div>
-                    {/* Register form */}
                     <form className="flex flex-col gap-4 items-center w-full">
                         <input
                             type="text"
@@ -75,7 +73,6 @@ const Register = () => {
                             </div>
                         </div>
                     </form>
-                    {/* Register button */}
                     <div className="w-full text-center">
                         <p>
                             Already have an account?{' '}

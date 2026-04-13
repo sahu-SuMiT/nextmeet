@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import Peer from 'simple-peer';
@@ -18,6 +18,7 @@ import QR from '../components/QR';
 import Clock from 'react-live-clock';
 import Search from '../components/Participant/search';
 import SERVER from '../config';
+
 const styles = {
     MeetCard: {
         display: 'flex',
@@ -35,11 +36,11 @@ const styles = {
         borderRadius: 3,
     },
 };
+
 const JoinCall = () => {
     const { id } = useParams();
-    const [mic, setMic] = useState(true);
-    const [camera, setCamera] = useState(true);
-    const [active, setActive] = useState(true);
+    const [mic, setMic] = useState(false);
+    const [camera, setCamera] = useState(false);
     const [localStream, setLocalStream] = useState(null);
     const [peers, setPeers] = useState([]);
     const localVideo = useRef(null);
@@ -47,152 +48,184 @@ const JoinCall = () => {
     const peersRef = useRef([]);
     const roomID = id;
     const navigate = useNavigate();
-
-    // get user
     const [user] = useAuthState(auth);
     const [search, setSearch] = useState('');
-    useEffect(() => {
-        socket.current = io.connect(SERVER);
-        if (user)
-            navigator.mediaDevices
-                .getUserMedia({
-                    video: true,
-                    audio: true,
-                })
-                .then((stream) => {
-                    setLocalStream(stream);
-                    localVideo.current.srcObject = stream;
-                    socket.current.emit('join room', {
-                        roomID,
-                        user: user
-                            ? {
-                                  uid: user?.uid,
-                                  email: user?.email,
-                                  name: user?.displayName,
-                                  photoURL: user?.photoURL,
-                              }
-                            : null,
-                    });
-                    socket.current.on('all users', (users) => {
-                        const peers = [];
-                        users.forEach((user) => {
-                            const peer = createPeer(user.userId, socket.current.id, stream);
-                            peersRef.current.push({
-                                peerID: user.userId,
-                                peer,
-                                user: user.user,
-                            });
-                            peers.push({
-                                peerID: user.userId,
-                                peer,
-                                user: user.user,
-                            });
-                        });
-                        setPeers(peers);
-                    });
-                    // listen for change in video permissions
-                    socket.current.on('video permission', (payload) => {
-                        console.log(payload);
-                    });
+    const [mediaInitialized, setMediaInitialized] = useState(false);
 
-                    // user joined listener
-                    socket.current.on('user joined', (payload) => {
-                        // console.log(payload);
-                        const peer = addPeer(payload.signal, payload.callerID, stream);
-                        peersRef.current.push({
-                            peerID: payload.callerID,
-                            peer,
-                            user: payload.user,
-                        });
+    const userRef = useRef(user);
+    useEffect(() => { userRef.current = user; }, [user]);
 
-                        const peerObj = {
-                            peerID: payload.callerID,
-                            peer,
-                            user: payload.user,
-                        };
+    const localStreamRef = useRef(null);
+    useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
 
-                        setPeers((users) => [...users, peerObj]);
-                    });
-
-                    socket.current.on('receiving returned signal', (payload) => {
-                        const item = peersRef.current.find((p) => p.peerID === payload.id);
-                        item.peer.signal(payload.signal);
-                    });
-
-                    socket.current.on('user left', (id) => {
-                        const peerObj = peersRef.current.find((p) => p.peerID === id);
-                        if (peerObj) peerObj.peer.destroy();
-                        const peers = peersRef.current.filter((p) => p.peerID !== id);
-                        peersRef.current = peers;
-                        setPeers((users) => users.filter((p) => p.peerID !== id));
-                    });
-                });
-        // eslint-disable-next-line
-    }, [user, roomID]);
-
-    const filteredPeers = (peers) =>
-        peers.filter((peer) => peer.user.name.toLowerCase().includes(search.toLowerCase()));
-    const createPeer = (userToSignal, callerID, stream) => {
+    const createPeer = useCallback((userToSignal, callerID, stream) => {
         const peer = new Peer({
             initiator: true,
             trickle: false,
-            stream,
+            stream: stream || undefined,
         });
         peer.on('signal', (signal) => {
             socket.current.emit('sending signal', {
                 userToSignal,
                 callerID,
                 signal,
-                user: user
+                user: userRef.current
                     ? {
-                          uid: user?.uid,
-                          email: user?.email,
-                          name: user?.displayName,
-                          photoURL: user?.photoURL,
+                          uid: userRef.current?.uid,
+                          email: userRef.current?.email,
+                          name: userRef.current?.displayName,
+                          photoURL: userRef.current?.photoURL,
                       }
                     : null,
             });
         });
         return peer;
-    };
+    }, []);
 
-    const addPeer = (incomingSignal, callerID, stream) => {
+    const addPeer = useCallback((incomingSignal, callerID, stream) => {
         const peer = new Peer({
             initiator: false,
             trickle: false,
-            stream,
+            stream: stream || undefined,
         });
         peer.on('signal', (signal) => {
             socket.current.emit('returning signal', { signal, callerID });
         });
         peer.signal(incomingSignal);
         return peer;
+    }, []);
+
+    useEffect(() => {
+        socket.current = io.connect(SERVER);
+        if (!user) return;
+
+        socket.current.emit('join room', {
+            roomID,
+            user: {
+                uid: user?.uid,
+                email: user?.email,
+                name: user?.displayName,
+                photoURL: user?.photoURL,
+            },
+        });
+
+        socket.current.on('duplicate session', () => {
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach((track) => track.stop());
+            }
+            alert('⚠️ Session Terminated\n\nYou have joined this meeting from another tab or window.\nThis session has been disconnected.\n\nOnly one active session per account is allowed.');
+            navigate('/');
+        });
+
+        socket.current.on('all users', (users) => {
+            const newPeers = [];
+            users.forEach((u) => {
+                const peer = createPeer(u.userId, socket.current.id, localStreamRef.current);
+                peersRef.current.push({
+                    peerID: u.userId,
+                    peer,
+                    user: u.user,
+                });
+                newPeers.push({
+                    peerID: u.userId,
+                    peer,
+                    user: u.user,
+                });
+            });
+            setPeers(newPeers);
+        });
+
+        socket.current.on('video permission', (payload) => {
+            console.log(payload);
+        });
+
+        socket.current.on('user joined', (payload) => {
+            const peer = addPeer(payload.signal, payload.callerID, localStreamRef.current);
+            peersRef.current.push({
+                peerID: payload.callerID,
+                peer,
+                user: payload.user,
+            });
+            setPeers((prev) => [...prev, {
+                peerID: payload.callerID,
+                peer,
+                user: payload.user,
+            }]);
+        });
+
+        socket.current.on('receiving returned signal', (payload) => {
+            const item = peersRef.current.find((p) => p.peerID === payload.id);
+            if (item) item.peer.signal(payload.signal);
+        });
+
+        socket.current.on('user left', (leftId) => {
+            const peerObj = peersRef.current.find((p) => p.peerID === leftId);
+            if (peerObj) peerObj.peer.destroy();
+            peersRef.current = peersRef.current.filter((p) => p.peerID !== leftId);
+            setPeers((prev) => prev.filter((p) => p.peerID !== leftId));
+        });
+
+        return () => {
+            if (socket.current) {
+                socket.current.disconnect();
+            }
+        };
+        // eslint-disable-next-line
+    }, [user, roomID]);
+
+    const initializeMedia = async () => {
+        if (mediaInitialized) return localStream;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            setLocalStream(stream);
+            localStreamRef.current = stream;
+            setMediaInitialized(true);
+            if (localVideo.current) {
+                localVideo.current.srcObject = stream;
+            }
+            peersRef.current.forEach(({ peer }) => {
+                if (peer && !peer.destroyed) {
+                    try {
+                        stream.getTracks().forEach((track) => peer.addTrack(track, stream));
+                    } catch (e) { /* ignore */ }
+                }
+            });
+            return stream;
+        } catch (err) {
+            console.warn('Camera/mic access denied:', err.message);
+            return null;
+        }
     };
 
-    const handleMic = () => {
-        setMic(!mic);
-        const audio = localVideo.current.srcObject.getAudioTracks()[0];
-        if (mic) {
-            audio.enabled = false;
-            setMic(false);
-        }
-        if (!mic) {
-            audio.enabled = true;
-            setMic(true);
-        }
-    };
-    const handleCamera = () => {
-        setCamera(!camera);
-        const videoTrack = localStream.getTracks().find((track) => track.kind === 'video');
-        if (active) {
-            videoTrack.enabled = false;
+    const handleCamera = async () => {
+        if (!camera) {
+            try {
+                let stream = localStream;
+                if (!stream) {
+                    stream = await initializeMedia();
+                    if (stream) {
+                        setMic(true);
+                        setCamera(true);
+                    }
+                    return;
+                } else {
+                    const videoTrack = stream.getVideoTracks()[0];
+                    if (videoTrack) videoTrack.enabled = true;
+                }
+                setCamera(true);
+            } catch (err) {
+                console.error('Camera access denied:', err.message);
+            }
         } else {
-            videoTrack.enabled = true;
-            // enable web cam
+            if (localStream) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                if (videoTrack) videoTrack.stop();
+            }
+            setCamera(false);
         }
-        setActive(!active);
+
         socket.current.emit('video permission', {
-            video: videoTrack.enabled,
+            video: !camera,
             user: user
                 ? {
                       uid: user?.uid,
@@ -204,24 +237,52 @@ const JoinCall = () => {
         });
     };
 
+    const handleMic = async () => {
+        if (!mic) {
+            try {
+                let stream = localStream;
+                if (!stream) {
+                    stream = await initializeMedia();
+                    if (stream) {
+                        setMic(true);
+                        setCamera(true);
+                    }
+                    return;
+                } else {
+                    const audioTrack = stream.getAudioTracks()[0];
+                    if (audioTrack) audioTrack.enabled = true;
+                }
+                setMic(true);
+            } catch (err) {
+                console.error('Mic access denied:', err.message);
+            }
+        } else {
+            if (localStream) {
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (audioTrack) audioTrack.stop();
+            }
+            setMic(false);
+        }
+    };
+
     const handleEnd = () => {
-        // navigate to home
+        if (localStream) {
+            localStream.getTracks().forEach((track) => track.stop());
+        }
         navigate('/');
         window.location.reload();
     };
 
     const handleSearch = (e) => {
-        console.log(e.target.value);
         e.preventDefault();
         setSearch(e.target.value);
-        // filter peers
     };
+
+    const filteredPeers = (peerList) =>
+        peerList.filter((peer) => peer.user?.name?.toLowerCase().includes(search.toLowerCase()));
+
     return (
-        <Grid container  columns={12} sx={{ minHeight: '100vh' }}>
-            {/**
-             * @Users video
-             * @only MEET CARD GRIDS
-             */}
+        <Grid container columns={12} sx={{ minHeight: '100vh' }}>
             <Grid
                 item
                 xs={12}
@@ -238,9 +299,13 @@ const JoinCall = () => {
                         controls={false}
                         ref={localVideo}
                         className="object-cover rounded-lg"
-                        style={{ width: styles.MeetCard.width, height: styles.MeetCard.height }}
+                        style={{
+                            width: styles.MeetCard.width,
+                            height: styles.MeetCard.height,
+                            display: camera ? 'block' : 'none',
+                        }}
                     />
-                    {!active && (
+                    {!camera && (
                         <Box
                             sx={{
                                 width: '100%',
@@ -256,7 +321,7 @@ const JoinCall = () => {
                                     user?.photoURL ||
                                     'https://parkridgevet.com.au/wp-content/uploads/2020/11/Profile-300x300.png'
                                 }
-                                alt={user?.name}
+                                alt={user?.displayName}
                             />
                         </Box>
                     )}
@@ -267,12 +332,11 @@ const JoinCall = () => {
                 </Box>
 
                 {peers.map((peer) => (
-                    // console.log(peer),
                     <MeetCard key={peer?.peerID} user={peer.user} peer={peer?.peer} />
                 ))}
             </Grid>
 
-            <Grid item xs={12} md={3} lg={3}  >
+            <Grid item xs={12} md={3} lg={3}>
                 <Grid container columns={12}>
                     <Grid
                         item
@@ -286,8 +350,6 @@ const JoinCall = () => {
                             alignItems: 'center',
                             height: '90vh',
                             overflow: 'auto',
-
-                            // hide scroll bar
                             '&::-webkit-scrollbar': {
                                 display: 'none',
                             },
@@ -299,7 +361,7 @@ const JoinCall = () => {
                         <Search search={search} setSearch={setSearch} handleSearch={handleSearch} />
                         <Participant user={user} you={true} />
                         {filteredPeers(peers).map((peer) => (
-                            <Participant user={peer} />
+                            <Participant key={peer.peerID} user={peer} />
                         ))}
                     </Grid>
                 </Grid>
@@ -320,7 +382,7 @@ const JoinCall = () => {
                     </Button>
                     <Button variant="outlined" sx={{ borderRadius: 20 }} onClick={handleCamera}>
                         {camera ? (
-                            <FaCamera size={30} color="#b1e1fc" onClick={handleCamera} />
+                            <FaCamera size={30} color="#b1e1fc" />
                         ) : (
                             <RiCameraOffFill size={30} color="gray" />
                         )}
