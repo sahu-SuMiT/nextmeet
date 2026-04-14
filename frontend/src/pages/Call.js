@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import Peer from 'simple-peer';
@@ -76,16 +76,24 @@ const JoinCall = () => {
     const peersRef = useRef([]);
     const roomID = id;
     const navigate = useNavigate();
-    const [user] = useAuthState(auth);
+    const [firebaseUser] = useAuthState(auth);
     const [search, setSearch] = useState('');
+
+    const guestName = localStorage.getItem('guestName');
+    // eslint-disable-next-line
+    const currentUser = useMemo(() => firebaseUser
+        ? { uid: firebaseUser.uid, name: firebaseUser.displayName, email: firebaseUser.email, photoURL: firebaseUser.photoURL }
+        : guestName
+        ? { uid: 'guest-' + guestName, name: guestName, email: null, photoURL: null }
+        : null, [firebaseUser, guestName]);
 
     const dummyStreamRef = useRef(null);
     const localStreamRef = useRef(null);
     const realVideoTrackRef = useRef(null);
     const realAudioTrackRef = useRef(null);
 
-    const userRef = useRef(user);
-    useEffect(() => { userRef.current = user; }, [user]);
+    const userRef = useRef(currentUser);
+    useEffect(() => { userRef.current = currentUser; }, [currentUser]);
 
     const chatOpenRef = useRef(chatOpen);
     useEffect(() => { chatOpenRef.current = chatOpen; }, [chatOpen]);
@@ -99,11 +107,11 @@ const JoinCall = () => {
     }, []);
 
     const getUserPayload = useCallback(() => ({
-        uid: user?.uid,
-        email: user?.email,
-        name: user?.displayName,
-        photoURL: user?.photoURL,
-    }), [user]);
+        uid: currentUser?.uid,
+        email: currentUser?.email,
+        name: currentUser?.name,
+        photoURL: currentUser?.photoURL,
+    }), [currentUser]);
 
     const createPeer = useCallback((userToSignal, callerID, stream) => {
         const peer = new Peer({
@@ -120,7 +128,7 @@ const JoinCall = () => {
                     ? {
                           uid: userRef.current?.uid,
                           email: userRef.current?.email,
-                          name: userRef.current?.displayName,
+                          name: userRef.current?.name,
                           photoURL: userRef.current?.photoURL,
                       }
                     : null,
@@ -144,15 +152,15 @@ const JoinCall = () => {
 
     useEffect(() => {
         socket.current = io.connect(SERVER);
-        if (!user || !dummyStreamRef.current) return;
+        if (!currentUser || !dummyStreamRef.current) return;
 
         socket.current.emit('join room', {
             roomID,
             user: {
-                uid: user?.uid,
-                email: user?.email,
-                name: user?.displayName,
-                photoURL: user?.photoURL,
+                uid: currentUser?.uid,
+                email: currentUser?.email,
+                name: currentUser?.name,
+                photoURL: currentUser?.photoURL,
             },
         });
 
@@ -224,7 +232,7 @@ const JoinCall = () => {
 
         socket.current.on('raise hand', (payload) => {
             setRaisedHands((prev) => ({ ...prev, [payload.uid]: payload.raised }));
-            if (payload.raised && payload.uid !== user?.uid) {
+            if (payload.raised && payload.uid !== currentUser?.uid) {
                 setHandNotification(`✋ ${payload.name} raised their hand`);
             }
         });
@@ -235,7 +243,7 @@ const JoinCall = () => {
             }
         };
         // eslint-disable-next-line
-    }, [user, roomID]);
+    }, [currentUser, roomID]);
 
     const replaceTrackOnAllPeers = (oldTrack, newTrack) => {
         peersRef.current.forEach(({ peer }) => {
@@ -337,8 +345,8 @@ const JoinCall = () => {
         const newState = !handRaised;
         setHandRaised(newState);
         socket.current.emit('raise hand', {
-            uid: user?.uid,
-            name: user?.displayName,
+            uid: currentUser?.uid,
+            name: currentUser?.name,
             raised: newState,
         });
     };
@@ -420,8 +428,8 @@ const JoinCall = () => {
                             }}>
                                 <Box sx={{ textAlign: 'center' }}>
                                     <img
-                                        src={user?.photoURL || 'https://parkridgevet.com.au/wp-content/uploads/2020/11/Profile-300x300.png'}
-                                        alt={user?.displayName}
+                                        src={currentUser?.photoURL || 'https://parkridgevet.com.au/wp-content/uploads/2020/11/Profile-300x300.png'}
+                                        alt={currentUser?.name}
                                         style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '3px solid #667eea' }}
                                     />
                                 </Box>
@@ -446,7 +454,7 @@ const JoinCall = () => {
                             p: '16px 12px 8px',
                         }}>
                             <Typography variant="body2" sx={{ color: '#fff', fontWeight: 600, fontSize: '13px' }}>
-                                {user?.displayName} (You)
+                                {currentUser?.name} (You)
                             </Typography>
                         </Box>
                     </Box>
@@ -501,7 +509,7 @@ const JoinCall = () => {
                                     <Search search={search} setSearch={setSearch} handleSearch={handleSearch} />
                                 </Box>
                                 <Box sx={{ px: '12px', pb: 1 }}>
-                                    <Participant user={user} you={true} />
+                                    <Participant user={currentUser} you={true} />
                                     {filteredPeers(peers).map((peer) => (
                                         <Participant key={peer.peerID} user={peer} />
                                     ))}
@@ -514,7 +522,7 @@ const JoinCall = () => {
                                     open={chatOpen}
                                     onClose={() => setChatOpen(false)}
                                     socket={socket}
-                                    user={user}
+                                    user={currentUser}
                                     messages={messages}
                                     unreadCount={unreadCount}
                                     onResetUnread={() => setUnreadCount(0)}

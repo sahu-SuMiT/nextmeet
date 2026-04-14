@@ -73,6 +73,23 @@ const registerSocketHandlers = (io, socket) => {
         }
     });
 
+    socket.on('global chat message', (payload) => {
+        const msg = {
+            id: Date.now() + '-' + socket.id,
+            sender: payload.sender,
+            message: payload.message,
+            timestamp: new Date().toISOString(),
+        };
+        if (!global.globalChatHistory) global.globalChatHistory = [];
+        global.globalChatHistory.push(msg);
+        if (global.globalChatHistory.length > 50) global.globalChatHistory.shift();
+        io.emit('global chat message', msg);
+    });
+
+    socket.on('get global chat', () => {
+        socket.emit('global chat history', global.globalChatHistory || []);
+    });
+
     socket.on('disconnect', () => {
         const result = leaveRoom(socket.id);
         if (result) {

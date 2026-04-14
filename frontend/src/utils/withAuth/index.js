@@ -10,12 +10,13 @@ const withAuth = (Component) => {
 
         if (loading) return <Loading />;
 
-        const token = user || localStorage.getItem('token');
+        const guestName = localStorage.getItem('guestName');
+        const token = user || guestName;
 
         if (token) {
             return <Component {...props} />;
         } else {
-            return <Navigate to="/login" />;
+            return <Navigate to="/" />;
         }
     };
 
