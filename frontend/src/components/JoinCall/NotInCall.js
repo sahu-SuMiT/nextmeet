@@ -1,7 +1,6 @@
 import React from 'react';
 import { Typography, Box } from '@mui/material';
 import QR from '../QR';
-import SERVER from '../../config';
 import { FaQuoteLeft } from 'react-icons/fa';
 import { useParams, useNavigate } from 'react-router-dom';
 
@@ -9,7 +8,7 @@ const NotInCall = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const handleOnClickJoin = () => {
-        navigate(`/${id}`);
+        navigate(`/call/${id}`);
     };
     return (
         <section className="w-full h-screen">
@@ -22,7 +21,7 @@ const NotInCall = () => {
                             component="div"
                             sx={{ display: 'flex', alignItems: 'center', gap: 2 }}
                         >
-                            share the meet-code <QR url={`${SERVER}/${id}`} />
+                            share the meet-code <QR url={`${window.location.origin}/${id}`} />
                         </Typography>
 
                         <Typography variant="subtitle1" color="GrayText">

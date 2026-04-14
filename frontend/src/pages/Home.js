@@ -4,11 +4,16 @@ import OpenMenuIcon from '../components/OpenMenuIcon';
 import withAuth from '../utils/withAuth';
 import Menu from './Menu';
 import { useNavigate } from 'react-router-dom';
-import { v4 } from 'uuid';
 import { Typography } from '@mui/material';
 import JOIN from '../assets/home2.png';
 import JOIN1 from '../assets/home.png';
 import { Box } from '@mui/system';
+
+const generateMeetCode = () => {
+    const chars = 'abcdefghijklmnopqrstuvwxyz';
+    const segment = () => Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    return `${segment()}-${segment()}-${segment()}`;
+};
 
 const Home = () => {
     const navigate = useNavigate();
@@ -25,7 +30,7 @@ const Home = () => {
     };
 
     const handleOnClickStartNewCall = () => {
-        navigate(`/preview/${v4()}`);
+        navigate(`/preview/${generateMeetCode()}`);
     };
 
     return (
