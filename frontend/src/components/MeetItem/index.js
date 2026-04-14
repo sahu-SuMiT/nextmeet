@@ -1,41 +1,53 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
-import { io } from 'socket.io-client';
-import SERVER from "../../config";
 
 const MeetCard = ({ user, peer }) => {
     const videoRef = React.useRef();
-    const socketRef = React.useRef();
-    const [isVideoOff, setIsVideoOff] = React.useState(true);
-    const [hasStream, setHasStream] = React.useState(false);
+    const [showVideo, setShowVideo] = React.useState(false);
 
     React.useEffect(() => {
-        socketRef.current = io.connect(SERVER);
-        socketRef.current.on('video permission', (payload) => {
-            if (Boolean(payload) && user?.uid === payload?.user?.uid) {
-                setIsVideoOff(!payload.video);
-            }
-        });
-
-        peer.on('stream', (stream) => {
+        const handleStream = (stream) => {
             if (videoRef.current) {
                 videoRef.current.srcObject = stream;
             }
-            setHasStream(true);
             const videoTrack = stream.getVideoTracks()[0];
             if (videoTrack) {
-                setIsVideoOff(!videoTrack.enabled);
+                setShowVideo(videoTrack.enabled && videoTrack.readyState === 'live');
+
+                videoTrack.onmute = () => setShowVideo(false);
+                videoTrack.onunmute = () => setShowVideo(true);
+                videoTrack.onended = () => setShowVideo(false);
+            }
+
+            stream.onaddtrack = (event) => {
+                if (event.track.kind === 'video') {
+                    if (videoRef.current) videoRef.current.srcObject = stream;
+                    setShowVideo(event.track.enabled && event.track.readyState === 'live');
+                    event.track.onmute = () => setShowVideo(false);
+                    event.track.onunmute = () => setShowVideo(true);
+                    event.track.onended = () => setShowVideo(false);
+                }
+            };
+        };
+
+        if (peer._remoteStreams && peer._remoteStreams.length > 0) {
+            handleStream(peer._remoteStreams[0]);
+        }
+
+        peer.on('stream', handleStream);
+
+        peer.on('track', (track, stream) => {
+            if (track.kind === 'video') {
+                if (videoRef.current) videoRef.current.srcObject = stream;
+                setShowVideo(track.enabled && track.readyState === 'live');
+                track.onmute = () => setShowVideo(false);
+                track.onunmute = () => setShowVideo(true);
+                track.onended = () => setShowVideo(false);
             }
         });
 
-        return () => {
-            if (socketRef.current) {
-                socketRef.current.disconnect();
-            }
-        };
-    }, [peer, user?.uid]);
-
-    const showAvatar = isVideoOff || !hasStream;
+        return () => {};
+    }, [peer]);
 
     return (
         <>
@@ -48,10 +60,10 @@ const MeetCard = ({ user, peer }) => {
                     width: '100%',
                     height: '100%',
                     objectFit: 'cover',
-                    display: showAvatar ? 'none' : 'block',
+                    display: showVideo ? 'block' : 'none',
                 }}
             />
-            {showAvatar && (
+            {!showVideo && (
                 <Box sx={{
                     width: '100%',
                     height: '100%',

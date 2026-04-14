@@ -22,7 +22,8 @@ const joinRoom = (roomID, socketId, user) => {
     if (!rooms[roomID]) {
         rooms[roomID] = [];
     }
-    const existingUsers = rooms[roomID].filter((u) => u.userId !== socketId);
+    rooms[roomID] = rooms[roomID].filter((u) => u.userId !== socketId);
+    const existingUsers = [...rooms[roomID]];
     rooms[roomID].push({ userId: socketId, user });
     socketToRoom[socketId] = roomID;
     return existingUsers;

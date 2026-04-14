@@ -33,13 +33,35 @@ const videoCardStyles = {
     transition: 'all 0.3s ease',
 };
 
+const createDummyStream = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#1e1e2e';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const videoTrack = canvas.captureStream(1).getVideoTracks()[0];
+    videoTrack.enabled = false;
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const dest = audioCtx.createMediaStreamDestination();
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0;
+    oscillator.connect(gain);
+    gain.connect(dest);
+    oscillator.start();
+    const audioTrack = dest.stream.getAudioTracks()[0];
+    audioTrack.enabled = false;
+
+    return new MediaStream([videoTrack, audioTrack]);
+};
+
 const JoinCall = () => {
     const { id } = useParams();
     const [mic, setMic] = useState(false);
     const [camera, setCamera] = useState(false);
-    const [localStream, setLocalStream] = useState(null);
     const [peers, setPeers] = useState([]);
-    const [mediaInitialized, setMediaInitialized] = useState(false);
 
     const [chatOpen, setChatOpen] = useState(false);
     const [participantsOpen, setParticipantsOpen] = useState(false);
@@ -57,20 +79,37 @@ const JoinCall = () => {
     const [user] = useAuthState(auth);
     const [search, setSearch] = useState('');
 
+    const dummyStreamRef = useRef(null);
+    const localStreamRef = useRef(null);
+    const realVideoTrackRef = useRef(null);
+    const realAudioTrackRef = useRef(null);
+
     const userRef = useRef(user);
     useEffect(() => { userRef.current = user; }, [user]);
 
-    const localStreamRef = useRef(null);
-    useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
-
     const chatOpenRef = useRef(chatOpen);
     useEffect(() => { chatOpenRef.current = chatOpen; }, [chatOpen]);
+
+    useEffect(() => {
+        dummyStreamRef.current = createDummyStream();
+        localStreamRef.current = dummyStreamRef.current;
+        if (localVideo.current) {
+            localVideo.current.srcObject = dummyStreamRef.current;
+        }
+    }, []);
+
+    const getUserPayload = useCallback(() => ({
+        uid: user?.uid,
+        email: user?.email,
+        name: user?.displayName,
+        photoURL: user?.photoURL,
+    }), [user]);
 
     const createPeer = useCallback((userToSignal, callerID, stream) => {
         const peer = new Peer({
             initiator: true,
             trickle: false,
-            stream: stream || undefined,
+            stream: stream,
         });
         peer.on('signal', (signal) => {
             socket.current.emit('sending signal', {
@@ -94,7 +133,7 @@ const JoinCall = () => {
         const peer = new Peer({
             initiator: false,
             trickle: false,
-            stream: stream || undefined,
+            stream: stream,
         });
         peer.on('signal', (signal) => {
             socket.current.emit('returning signal', { signal, callerID });
@@ -105,7 +144,7 @@ const JoinCall = () => {
 
     useEffect(() => {
         socket.current = io.connect(SERVER);
-        if (!user) return;
+        if (!user || !dummyStreamRef.current) return;
 
         socket.current.emit('join room', {
             roomID,
@@ -118,9 +157,8 @@ const JoinCall = () => {
         });
 
         socket.current.on('duplicate session', () => {
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach((track) => track.stop());
-            }
+            if (realVideoTrackRef.current) realVideoTrackRef.current.stop();
+            if (realAudioTrackRef.current) realAudioTrackRef.current.stop();
             alert('⚠️ Session Terminated\n\nYou have joined this meeting from another tab or window.\nThis session has been disconnected.\n\nOnly one active session per account is allowed.');
             navigate('/');
         });
@@ -143,22 +181,26 @@ const JoinCall = () => {
             setPeers(newPeers);
         });
 
-        socket.current.on('video permission', (payload) => {
-            console.log(payload);
-        });
-
         socket.current.on('user joined', (payload) => {
+            const existingIdx = peersRef.current.findIndex((p) => p.peerID === payload.callerID);
+            if (existingIdx !== -1) {
+                peersRef.current[existingIdx].peer.destroy();
+                peersRef.current.splice(existingIdx, 1);
+            }
             const peer = addPeer(payload.signal, payload.callerID, localStreamRef.current);
             peersRef.current.push({
                 peerID: payload.callerID,
                 peer,
                 user: payload.user,
             });
-            setPeers((prev) => [...prev, {
-                peerID: payload.callerID,
-                peer,
-                user: payload.user,
-            }]);
+            setPeers((prev) => {
+                const filtered = prev.filter((p) => p.peerID !== payload.callerID);
+                return [...filtered, {
+                    peerID: payload.callerID,
+                    peer,
+                    user: payload.user,
+                }];
+            });
         });
 
         socket.current.on('receiving returned signal', (payload) => {
@@ -195,92 +237,97 @@ const JoinCall = () => {
         // eslint-disable-next-line
     }, [user, roomID]);
 
-    const initializeMedia = async () => {
-        if (mediaInitialized) return localStream;
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            setLocalStream(stream);
-            localStreamRef.current = stream;
-            setMediaInitialized(true);
-            if (localVideo.current) {
-                localVideo.current.srcObject = stream;
-            }
-            peersRef.current.forEach(({ peer }) => {
-                if (peer && !peer.destroyed) {
-                    try {
-                        stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-                    } catch (e) { /* ignore */ }
+    const replaceTrackOnAllPeers = (oldTrack, newTrack) => {
+        peersRef.current.forEach(({ peer }) => {
+            if (peer && !peer.destroyed) {
+                try {
+                    peer.replaceTrack(oldTrack, newTrack, localStreamRef.current);
+                } catch (e) {
+                    console.warn('replaceTrack failed:', e);
                 }
-            });
-            return stream;
-        } catch (err) {
-            console.warn('Camera/mic access denied:', err.message);
-            return null;
-        }
+            }
+        });
     };
 
     const handleCamera = async () => {
         if (!camera) {
             try {
-                let stream = localStream;
-                if (!stream) {
-                    stream = await initializeMedia();
-                    if (stream) {
-                        setMic(true);
-                        setCamera(true);
-                    }
-                    return;
-                } else {
-                    const videoTrack = stream.getVideoTracks()[0];
-                    if (videoTrack) videoTrack.enabled = true;
+                const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const newVideoTrack = mediaStream.getVideoTracks()[0];
+
+                const dummyVideoTrack = localStreamRef.current.getVideoTracks()[0];
+                localStreamRef.current.removeTrack(dummyVideoTrack);
+                localStreamRef.current.addTrack(newVideoTrack);
+
+                replaceTrackOnAllPeers(dummyVideoTrack, newVideoTrack);
+
+                if (realVideoTrackRef.current) realVideoTrackRef.current.stop();
+                realVideoTrackRef.current = newVideoTrack;
+
+                if (localVideo.current) {
+                    localVideo.current.srcObject = localStreamRef.current;
                 }
                 setCamera(true);
             } catch (err) {
                 console.error('Camera access denied:', err.message);
             }
         } else {
-            if (localStream) {
-                const videoTrack = localStream.getVideoTracks()[0];
-                if (videoTrack) videoTrack.stop();
+            if (realVideoTrackRef.current) {
+                const dummyStream = createDummyStream();
+                const dummyVideoTrack = dummyStream.getVideoTracks()[0];
+                dummyVideoTrack.enabled = false;
+
+                replaceTrackOnAllPeers(realVideoTrackRef.current, dummyVideoTrack);
+
+                localStreamRef.current.removeTrack(realVideoTrackRef.current);
+                localStreamRef.current.addTrack(dummyVideoTrack);
+
+                realVideoTrackRef.current.stop();
+                realVideoTrackRef.current = null;
+
+                if (localVideo.current) {
+                    localVideo.current.srcObject = localStreamRef.current;
+                }
             }
             setCamera(false);
         }
         socket.current.emit('video permission', {
             video: !camera,
-            user: user
-                ? {
-                      uid: user?.uid,
-                      email: user?.email,
-                      name: user?.displayName,
-                      photoURL: user?.photoURL,
-                  }
-                : null,
+            user: getUserPayload(),
         });
     };
 
     const handleMic = async () => {
         if (!mic) {
             try {
-                let stream = localStream;
-                if (!stream) {
-                    stream = await initializeMedia();
-                    if (stream) {
-                        setMic(true);
-                        setCamera(true);
-                    }
-                    return;
-                } else {
-                    const audioTrack = stream.getAudioTracks()[0];
-                    if (audioTrack) audioTrack.enabled = true;
-                }
+                const mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const newAudioTrack = mediaStream.getAudioTracks()[0];
+
+                const dummyAudioTrack = localStreamRef.current.getAudioTracks()[0];
+                localStreamRef.current.removeTrack(dummyAudioTrack);
+                localStreamRef.current.addTrack(newAudioTrack);
+
+                replaceTrackOnAllPeers(dummyAudioTrack, newAudioTrack);
+
+                if (realAudioTrackRef.current) realAudioTrackRef.current.stop();
+                realAudioTrackRef.current = newAudioTrack;
                 setMic(true);
             } catch (err) {
                 console.error('Mic access denied:', err.message);
             }
         } else {
-            if (localStream) {
-                const audioTrack = localStream.getAudioTracks()[0];
-                if (audioTrack) audioTrack.stop();
+            if (realAudioTrackRef.current) {
+                const dummyStream = createDummyStream();
+                const dummyAudioTrack = dummyStream.getAudioTracks()[0];
+                dummyAudioTrack.enabled = false;
+
+                replaceTrackOnAllPeers(realAudioTrackRef.current, dummyAudioTrack);
+
+                localStreamRef.current.removeTrack(realAudioTrackRef.current);
+                localStreamRef.current.addTrack(dummyAudioTrack);
+
+                realAudioTrackRef.current.stop();
+                realAudioTrackRef.current = null;
             }
             setMic(false);
         }
@@ -297,9 +344,8 @@ const JoinCall = () => {
     };
 
     const handleEnd = () => {
-        if (localStream) {
-            localStream.getTracks().forEach((track) => track.stop());
-        }
+        if (realVideoTrackRef.current) realVideoTrackRef.current.stop();
+        if (realAudioTrackRef.current) realAudioTrackRef.current.stop();
         navigate('/');
         window.location.reload();
     };
@@ -407,7 +453,7 @@ const JoinCall = () => {
 
                     {peers.map((peer) => (
                         <Box key={peer?.peerID} sx={{ ...videoCardStyles, width: videoSize.width, maxWidth: videoSize.maxWidth, height: videoSize.height, position: 'relative' }}>
-                            <MeetCard user={peer.user} peer={peer?.peer} videoSize={videoSize} />
+                            <MeetCard user={peer.user} peer={peer?.peer} />
                             {raisedHands[peer.user?.uid] && (
                                 <Box sx={{ position: 'absolute', top: 8, right: 8, fontSize: '24px', animation: 'handWave 1s ease-in-out infinite' }}>
                                     ✋

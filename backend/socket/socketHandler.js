@@ -23,6 +23,11 @@ const registerSocketHandlers = (io, socket) => {
         socket.emit('all users', existingUsers);
     });
 
+    socket.on('rejoin room', ({ roomID, user }) => {
+        const existingUsers = joinRoom(roomID, socket.id, user);
+        socket.emit('all users', existingUsers);
+    });
+
     socket.on('sending signal', ({ userToSignal, callerID, signal, user }) => {
         io.to(userToSignal).emit('user joined', {
             signal,
