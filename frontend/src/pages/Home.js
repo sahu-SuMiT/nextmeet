@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { auth } from '../firebase';
-import { io } from 'socket.io-client';
+import { auth, db } from '../firebase';
+import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
-import SERVER from '../config';
 
 const generateMeetCode = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyz';
@@ -25,7 +24,8 @@ const Home = () => {
     const [globalMessages, setGlobalMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const chatEndRef = useRef(null);
-    const socketRef = useRef(null);
+    const [chatWidth, setChatWidth] = useState(320);
+    const isResizing = useRef(false);
 
     const currentUser = firebaseUser
         ? { name: firebaseUser.displayName, photoURL: firebaseUser.photoURL, uid: firebaseUser.uid }
@@ -36,11 +36,12 @@ const Home = () => {
         : chatName || null;
 
     useEffect(() => {
-        socketRef.current = io.connect(SERVER);
-        socketRef.current.emit('get global chat');
-        socketRef.current.on('global chat history', (history) => setGlobalMessages(history));
-        socketRef.current.on('global chat message', (msg) => setGlobalMessages((prev) => [...prev, msg]));
-        return () => { if (socketRef.current) socketRef.current.disconnect(); };
+        const q = query(collection(db, 'globalChat'), orderBy('createdAt', 'asc'), limit(100));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const msgs = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+            setGlobalMessages(msgs);
+        });
+        return () => unsubscribe();
     }, []);
 
     useEffect(() => {
@@ -74,13 +75,17 @@ const Home = () => {
         setShowChatNameInput(false);
     };
 
-    const handleSendChat = () => {
-        if (!chatInput.trim() || !socketRef.current) return;
+    const handleSendChat = async () => {
+        if (!chatInput.trim()) return;
         if (!chatUser) { setShowChatNameInput(true); return; }
-        socketRef.current.emit('global chat message', {
-            sender: { name: chatUser, uid: currentUser?.uid || 'chat-' + chatUser },
-            message: chatInput.trim(),
-        });
+        try {
+            await addDoc(collection(db, 'globalChat'), {
+                sender: { name: chatUser, uid: currentUser?.uid || 'chat-' + chatUser },
+                message: chatInput.trim(),
+                timestamp: new Date().toISOString(),
+                createdAt: serverTimestamp(),
+            });
+        } catch (e) { console.error('Failed to send:', e); }
         setChatInput('');
     };
 
@@ -101,17 +106,53 @@ const Home = () => {
 
     const myUid = currentUser?.uid || (chatUser ? 'chat-' + chatUser : null);
 
+    const handleMouseDown = useCallback((e) => {
+        isResizing.current = true;
+        e.preventDefault();
+    }, []);
+
+    useEffect(() => {
+        const handleMouseMove = (e) => {
+            if (!isResizing.current) return;
+            const newWidth = Math.min(600, Math.max(240, e.clientX));
+            setChatWidth(newWidth);
+        };
+        const handleMouseUp = () => { isResizing.current = false; };
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, []);
+
     return (
         <div style={{ display: 'flex', height: '100vh', backgroundColor: '#0a0a1a', overflow: 'hidden', fontFamily: "'Inter', sans-serif" }}>
 
             <div style={{
-                width: 320,
+                width: chatWidth,
                 display: 'flex',
                 flexDirection: 'column',
-                borderRight: '1px solid #1e1e3a',
+                borderRight: 'none',
                 backgroundColor: '#0f0f24',
                 flexShrink: 0,
+                position: 'relative',
             }}>
+                <div
+                    onMouseDown={handleMouseDown}
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        right: -3,
+                        width: 6,
+                        height: '100%',
+                        cursor: 'col-resize',
+                        zIndex: 10,
+                        backgroundColor: isResizing.current ? '#667eea' : 'transparent',
+                    }}
+                    onMouseEnter={(e) => { if (!isResizing.current) e.target.style.backgroundColor = '#667eea44'; }}
+                    onMouseLeave={(e) => { if (!isResizing.current) e.target.style.backgroundColor = 'transparent'; }}
+                />
                 <div style={{
                     padding: '14px 18px',
                     borderBottom: '1px solid #1e1e3a',
@@ -138,7 +179,7 @@ const Home = () => {
                         return (
                             <div key={msg.id} style={{ display: 'flex', flexDirection: 'column', alignItems: isMe ? 'flex-end' : 'flex-start', animation: 'fadeIn 0.2s ease' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 1 }}>
-                                    <span style={{ fontSize: 10, color: isMe ? '#667eea' : '#666', fontWeight: 600 }}>
+                                    <span style={{ fontSize: 10, color: isMe ? '#667eea' : '#666', fontWeight: 600, cursor: 'default' }} title={new Date(msg.timestamp).toLocaleString()}>
                                         {isMe ? 'You' : msg.sender?.name}
                                     </span>
                                     <span style={{ fontSize: 9, color: '#444' }}>{formatTime(msg.timestamp)}</span>

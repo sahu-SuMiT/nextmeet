@@ -1,9 +1,11 @@
 import React from 'react';
 import { Box, Typography } from '@mui/material';
+import { BsFillMicMuteFill } from 'react-icons/bs';
 
 const MeetCard = ({ user, peer }) => {
     const videoRef = React.useRef();
     const [showVideo, setShowVideo] = React.useState(false);
+    const [isMuted, setIsMuted] = React.useState(true);
 
     React.useEffect(() => {
         const handleStream = (stream) => {
@@ -13,10 +15,17 @@ const MeetCard = ({ user, peer }) => {
             const videoTrack = stream.getVideoTracks()[0];
             if (videoTrack) {
                 setShowVideo(videoTrack.enabled && videoTrack.readyState === 'live');
-
                 videoTrack.onmute = () => setShowVideo(false);
                 videoTrack.onunmute = () => setShowVideo(true);
                 videoTrack.onended = () => setShowVideo(false);
+            }
+
+            const audioTrack = stream.getAudioTracks()[0];
+            if (audioTrack) {
+                setIsMuted(!audioTrack.enabled || audioTrack.readyState !== 'live');
+                audioTrack.onmute = () => setIsMuted(true);
+                audioTrack.onunmute = () => setIsMuted(false);
+                audioTrack.onended = () => setIsMuted(true);
             }
 
             stream.onaddtrack = (event) => {
@@ -26,6 +35,12 @@ const MeetCard = ({ user, peer }) => {
                     event.track.onmute = () => setShowVideo(false);
                     event.track.onunmute = () => setShowVideo(true);
                     event.track.onended = () => setShowVideo(false);
+                }
+                if (event.track.kind === 'audio') {
+                    setIsMuted(!event.track.enabled || event.track.readyState !== 'live');
+                    event.track.onmute = () => setIsMuted(true);
+                    event.track.onunmute = () => setIsMuted(false);
+                    event.track.onended = () => setIsMuted(true);
                 }
             };
         };
@@ -43,6 +58,12 @@ const MeetCard = ({ user, peer }) => {
                 track.onmute = () => setShowVideo(false);
                 track.onunmute = () => setShowVideo(true);
                 track.onended = () => setShowVideo(false);
+            }
+            if (track.kind === 'audio') {
+                setIsMuted(!track.enabled || track.readyState !== 'live');
+                track.onmute = () => setIsMuted(true);
+                track.onunmute = () => setIsMuted(false);
+                track.onended = () => setIsMuted(true);
             }
         });
 
@@ -82,6 +103,20 @@ const MeetCard = ({ user, peer }) => {
                             style={{ width: 80, height: 80, borderRadius: '50%', objectFit: 'cover', border: '3px solid #667eea' }}
                         />
                     </Box>
+                </Box>
+            )}
+            {isMuted && (
+                <Box sx={{
+                    position: 'absolute',
+                    top: 8,
+                    left: 8,
+                    backgroundColor: 'rgba(239,68,68,0.8)',
+                    borderRadius: '50%',
+                    p: '4px',
+                    display: 'flex',
+                    zIndex: 2,
+                }}>
+                    <BsFillMicMuteFill size={14} color="#fff" />
                 </Box>
             )}
             <Box sx={{
