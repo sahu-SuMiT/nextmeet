@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from '../firebase';
-import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, getDocs } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 
 const generateMeetCode = () => {
@@ -10,6 +10,8 @@ const generateMeetCode = () => {
     const segment = () => Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     return `${segment()}-${segment()}-${segment()}`;
 };
+
+let scriptBotStarted = false;
 
 const Home = () => {
     const navigate = useNavigate();
@@ -47,6 +49,57 @@ const Home = () => {
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [globalMessages]);
+
+    // Script playback: pick a random script and simulate messages locally (no Firestore writes)
+    const [simMessages, setSimMessages] = useState([]);
+
+    useEffect(() => {
+        let timer = null;
+        let cancelled = false;
+
+        const playScript = async () => {
+            try {
+                const snap = await getDocs(collection(db, 'chatScripts'));
+                if (snap.empty || cancelled) return;
+                const scripts = snap.docs.map((d) => d.data());
+                let scriptIdx = Math.floor(Math.random() * scripts.length);
+                let msgs = scripts[scriptIdx].messages || [];
+                let idx = 0;
+
+                const postNext = () => {
+                    if (cancelled) return;
+                    if (idx >= msgs.length) {
+                        // pick next random script and loop
+                        scriptIdx = Math.floor(Math.random() * scripts.length);
+                        msgs = scripts[scriptIdx].messages || [];
+                        idx = 0;
+                        timer = setTimeout(postNext, 6000 + Math.random() * 4000);
+                        return;
+                    }
+                    const { name, msg } = msgs[idx];
+                    idx++;
+                    const simMsg = {
+                        id: 'sim-' + Date.now() + '-' + idx,
+                        sender: { name, uid: 'bot-' + name.toLowerCase().replace(/\s/g, '') },
+                        message: msg,
+                        timestamp: new Date().toISOString(),
+                        isSimulated: true,
+                    };
+                    setSimMessages((prev) => [...prev.slice(-80), simMsg]);
+                    const delay = 5000 + Math.random() * 2000;
+                    timer = setTimeout(postNext, delay);
+                };
+                timer = setTimeout(postNext, 3000);
+            } catch (e) { /* ignore */ }
+        };
+        playScript();
+
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+        };
+        // eslint-disable-next-line
+    }, []);
 
     const handleAction = (action) => {
         if (!currentUser) {
